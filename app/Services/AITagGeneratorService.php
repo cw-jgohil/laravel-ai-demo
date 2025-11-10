@@ -49,9 +49,7 @@ class AITagGeneratorService
     {
         $instructions = $this->combineInstructions($overrideRules);
         [$systemMessage, $userPrompt] = $this->buildPrompt($title, $description, $maxTags, $instructions);
-
         $model = (string) env('OPENAI_MODEL', 'gpt-4o-mini');
-
         $content = $this->callOpenAIChat($model, $systemMessage, $userPrompt);
         $tags = $this->parseTagsFromContent($content);
 
