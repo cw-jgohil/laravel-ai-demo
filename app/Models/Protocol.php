@@ -18,6 +18,14 @@ class Protocol extends Model
     protected $casts = [
         'tags' => 'array',
     ];
+
+    /**
+     * Relation to Tag models (avoid name collision with JSON 'tags' column).
+     */
+    public function tagsRelation()
+    {
+        return $this->belongsToMany(Tag::class, 'protocol_tag')->withTimestamps();
+    }
 }
 
 

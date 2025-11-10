@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             ProtocolSeeder::class,
             AiPromptRuleSeeder::class,
+            TagsBackfillSeeder::class,
         ]);
     }
 }

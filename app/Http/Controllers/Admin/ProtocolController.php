@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AiPromptRule;
 use App\Models\Protocol;
+use App\Models\Tag;
 use App\Services\AITagGeneratorService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,7 +16,11 @@ class ProtocolController extends Controller
 {
     public function index(): View
     {
-        $protocols = Protocol::query()->orderByDesc('updated_at')->orderByDesc('id')->get();
+        $protocols = Protocol::query()
+            ->with('tagsRelation')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get();
 
         return view('admin.protocols.index', [
             'protocols' => $protocols,
@@ -40,9 +45,16 @@ class ProtocolController extends Controller
             'tags' => $data['tags'],
         ]);
 
+        // Sync tags pivot if provided
+        $structured = $this->structuredTagsFromRequest($request);
+        if (!empty($structured) && method_exists($protocol, 'tagsRelation')) {
+            $tagIds = $this->ensureTagsExistAndGetIds($structured);
+            $protocol->tagsRelation()->sync($tagIds);
+        }
+
         return redirect()
-            ->route('admin.protocols.edit', $protocol)
-            ->with('status', 'Protocol created. You can review tags before publishing.');
+            ->route('admin.protocols.index')
+            ->with('status', 'Protocol created.');
     }
 
     public function edit(Protocol $protocol): View
@@ -59,6 +71,13 @@ class ProtocolController extends Controller
             'description' => $data['description'],
             'tags' => $data['tags'],
         ]);
+
+        // Sync tags pivot if provided
+        $structured = $this->structuredTagsFromRequest($request);
+        if (!empty($structured) && method_exists($protocol, 'tagsRelation')) {
+            $tagIds = $this->ensureTagsExistAndGetIds($structured);
+            $protocol->tagsRelation()->sync($tagIds);
+        }
 
         return redirect()
             ->route('admin.protocols.edit', $protocol)
@@ -118,8 +137,13 @@ class ProtocolController extends Controller
                 $validated['override_rules'] ?? null,
                 $validated['provider'] ?? null
             );
-            $protocol->tags = $tags;
+            $structured = $this->normaliseToStructuredTags($tags);
+            $protocol->tags = array_values(array_unique(array_map(fn ($t) => (string)($t['label'] ?? ''), $structured)));
             $protocol->save();
+            if (method_exists($protocol, 'tagsRelation')) {
+                $tagIds = $this->ensureTagsExistAndGetIds($structured);
+                $protocol->tagsRelation()->sync($tagIds);
+            }
 
             return redirect()
                 ->route('admin.protocols.index')
@@ -142,9 +166,22 @@ class ProtocolController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
             'tags' => ['nullable', 'string'],
+            'tags_json' => ['nullable', 'string'],
         ]);
 
-        $data['tags'] = $this->normalizeTags($data['tags'] ?? []);
+        // Prefer structured tags JSON to derive labels for JSON column
+        $structured = [];
+        if (!empty($data['tags_json'])) {
+            $decoded = json_decode((string) $data['tags_json'], true);
+            if (is_array($decoded)) {
+                $structured = $this->normaliseToStructuredTags($decoded);
+            }
+        }
+        if (!empty($structured)) {
+            $data['tags'] = array_values(array_unique(array_map(fn ($t) => (string)($t['label'] ?? ''), $structured)));
+        } else {
+            $data['tags'] = $this->normalizeTags($data['tags'] ?? []);
+        }
 
         return $data;
     }
@@ -172,6 +209,88 @@ class ProtocolController extends Controller
         }
 
         return $normalized;
+    }
+
+    /**
+     * Convert to array of ['key'=>string,'label'=>string]
+     * @param mixed $tags
+     * @return array<int, array{key:string,label:string}>
+     */
+    private function normaliseToStructuredTags(mixed $tags): array
+    {
+        $items = [];
+        if (is_array($tags)) {
+            foreach ($tags as $t) {
+                if (is_string($t)) {
+                    $label = trim($t);
+                    if ($label === '') {
+                        continue;
+                    }
+                    $items[] = [
+                        'key' => $this->slugifyKey($label),
+                        'label' => $label,
+                    ];
+                } elseif (is_array($t)) {
+                    $label = trim((string)($t['label'] ?? $t['name'] ?? ''));
+                    $key = trim((string)($t['key'] ?? ''));
+                    if ($label === '') {
+                        continue;
+                    }
+                    if ($key === '') {
+                        $key = $this->slugifyKey($label);
+                    }
+                    $items[] = [
+                        'key' => $key,
+                        'label' => $label,
+                    ];
+                }
+            }
+        }
+        // Unique by key
+        $unique = [];
+        foreach ($items as $i) {
+            $unique[$i['key']] = $i;
+        }
+        return array_values($unique);
+    }
+
+    private function slugifyKey(string $label): string
+    {
+        $k = mb_strtolower($label);
+        $k = preg_replace('/[^a-z0-9]+/i', '-', $k) ?? '';
+        $k = trim($k, '-');
+        return $k !== '' ? $k : substr(md5($label), 0, 8);
+    }
+
+    /**
+     * @return array<int, array{key:string,label:string}>
+     */
+    private function structuredTagsFromRequest(Request $request): array
+    {
+        $raw = (string) $request->input('tags_json', '');
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        return $this->normaliseToStructuredTags($decoded);
+    }
+
+    /**
+     * Ensure tags exist and return IDs
+     * @param array<int, array{key:string,label:string}> $structured
+     * @return array<int, int>
+     */
+    private function ensureTagsExistAndGetIds(array $structured): array
+    {
+        $ids = [];
+        foreach ($structured as $t) {
+            $tag = Tag::query()->firstOrCreate(
+                ['key' => $t['key']],
+                ['label' => $t['label']]
+            );
+            $ids[] = $tag->id;
+        }
+        return $ids;
     }
 }
 

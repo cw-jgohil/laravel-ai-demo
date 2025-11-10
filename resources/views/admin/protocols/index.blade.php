@@ -50,10 +50,11 @@
                             </td>
                             <td style="word-wrap: break-word;">
                                 @php
-                                    $tags = is_array($protocol->tags) ? $protocol->tags : [];
+                                    $rel = method_exists($protocol, 'tagsRelation') ? $protocol->tagsRelation : collect();
+                                    $tagLabels = $rel && $rel->count() ? $rel->pluck('label')->all() : (is_array($protocol->tags) ? $protocol->tags : []);
                                 @endphp
-                                @if(count($tags))
-                                    @foreach($tags as $tag)
+                                @if(count($tagLabels))
+                                    @foreach($tagLabels as $tag)
                                         <span class="badge text-bg-primary me-1 mb-1">{{ $tag }}</span>
                                     @endforeach
                                 @else
