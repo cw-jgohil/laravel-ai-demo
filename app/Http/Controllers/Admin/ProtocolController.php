@@ -81,17 +81,20 @@ class ProtocolController extends Controller
             'title' => ['required', 'string'],
             'description' => ['required', 'string'],
             'max_tags' => ['nullable', 'integer', 'min:1', 'max:25'],
+            'provider' => ['nullable', 'string', 'in:openai,groq'],
             'override_rules' => ['nullable', 'string'],
         ]);
 
         $max = $validated['max_tags'] ?? 12;
+        $provider = $validated['provider'] ?? null;
         $override = $validated['override_rules'] ?? null;
 
         $tags = $ai->generateTags(
             $validated['title'],
             $validated['description'],
             $max,
-            $override
+            $override,
+            $provider
         );
 
         return [
@@ -103,6 +106,7 @@ class ProtocolController extends Controller
     {
         $validated = $request->validate([
             'max_tags' => ['nullable', 'integer', 'min:1', 'max:25'],
+            'provider' => ['nullable', 'string', 'in:openai,groq'],
             'override_rules' => ['nullable', 'string'],
         ]);
 
@@ -111,7 +115,8 @@ class ProtocolController extends Controller
                 $protocol->title,
                 (string) $protocol->description,
                 $validated['max_tags'] ?? 12,
-                $validated['override_rules'] ?? null
+                $validated['override_rules'] ?? null,
+                $validated['provider'] ?? null
             );
             $protocol->tags = $tags;
             $protocol->save();

@@ -39,6 +39,20 @@
         @enderror
     </div>
 
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <label for="ai-provider" class="form-label">AI Provider</label>
+            @php
+                $defaultProvider = env('AI_PROVIDER', 'openai');
+            @endphp
+            <select id="ai-provider" class="form-select">
+                <option value="openai" {{ $defaultProvider === 'openai' ? 'selected' : '' }}>OpenAI</option>
+                <option value="groq" {{ $defaultProvider === 'groq' ? 'selected' : '' }}>Groq</option>
+            </select>
+            <div class="form-text">Choose which AI platform to use for tag generation.</div>
+        </div>
+    </div>
+
     <div class="d-flex align-items-center gap-3 mb-3">
         <button type="button"
                 class="btn btn-outline-primary d-flex align-items-center gap-2"
@@ -69,10 +83,12 @@
             const tagsInput = document.getElementById('tags');
             const statusEl = document.getElementById('generate-tags-status');
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const providerSelect = document.getElementById('ai-provider');
 
             button.addEventListener('click', async () => {
                 const title = titleInput.value.trim();
                 const description = descriptionInput.value.trim();
+                const provider = (providerSelect?.value || 'openai').toLowerCase();
 
                 if (!title || !description) {
                     statusEl.classList.remove('text-success');
@@ -99,6 +115,7 @@
                         body: JSON.stringify({
                             title,
                             description,
+                            provider,
                         }),
                     });
 

@@ -13,7 +13,8 @@ return [
     */
 
     'api_key' => env('OPENAI_API_KEY'),
-    'organization' => env('OPENAI_ORGANIZATION'),
+    // Only send the header when a non-empty organization is provided
+    'organization' => env('OPENAI_ORGANIZATION') ?: null,
 
     /*
     |--------------------------------------------------------------------------
