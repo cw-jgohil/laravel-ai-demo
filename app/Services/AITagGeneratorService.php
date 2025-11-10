@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AiPromptRule;
 use OpenAI\Laravel\Facades\OpenAI;
 use RuntimeException;
+use GuzzleHttp\Client;
 
 class AITagGeneratorService
 {
@@ -45,14 +46,23 @@ class AITagGeneratorService
      * @param string|null $overrideRules Additional per-request rules that will be appended to the saved admin rules
      * @return array<int, string>
      */
-    public function generateTags(string $title, string $description, int $maxTags = 12, ?string $overrideRules = null): array
+    public function generateTags(string $title, string $description, int $maxTags = 12, ?string $overrideRules = null, ?string $provider = null): array
     {
         $instructions = $this->combineInstructions($overrideRules);
         [$systemMessage, $userPrompt] = $this->buildPrompt($title, $description, $maxTags, $instructions);
 
-        $model = (string) env('OPENAI_MODEL', 'gpt-4o-mini');
+        $selectedProvider = mb_strtolower(trim((string) $provider ?: (string) env('AI_PROVIDER', 'openai')));
+        if ($selectedProvider === '' || !in_array($selectedProvider, ['openai', 'groq'], true)) {
+            $selectedProvider = 'openai';
+        }
 
-        $content = $this->callOpenAIChat($model, $systemMessage, $userPrompt);
+        if ($selectedProvider === 'groq') {
+            $model = (string) env('GROQ_MODEL', 'llama-3.1-8b-instant');
+            $content = $this->callGroqChat($model, $systemMessage, $userPrompt);
+        } else {
+            $model = (string) env('OPENAI_MODEL', 'gpt-4o-mini');
+            $content = $this->callOpenAIChat($model, $systemMessage, $userPrompt);
+        }
         $tags = $this->parseTagsFromContent($content);
 
         if (empty($tags)) {
@@ -140,6 +150,51 @@ class AITagGeneratorService
         if (!is_string($content) || $content === '') {
             throw new RuntimeException('OpenAI returned an empty response.');
         }
+        return $content;
+    }
+
+    /**
+     * Call Groq's OpenAI-compatible Chat Completions API.
+     */
+    private function callGroqChat(string $model, string $systemMessage, string $userPrompt): string
+    {
+        $apiKey = (string) env('GROQ_API_KEY', '');
+        if ($apiKey === '') {
+            throw new RuntimeException('GROQ_API_KEY is not configured.');
+        }
+
+        $client = new Client([
+            'base_uri' => 'https://api.groq.com/openai/v1/',
+            'timeout' => (float) env('GROQ_REQUEST_TIMEOUT', 30),
+        ]);
+
+        $response = $client->post('chat/completions', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type' => 'application/json',
+            ],
+            'json' => [
+                'model' => $model,
+                'temperature' => 0.2,
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => $systemMessage,
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => $userPrompt,
+                    ],
+                ],
+            ],
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $content = $data['choices'][0]['message']['content'] ?? null;
+        if (!is_string($content) || $content === '') {
+            throw new RuntimeException('Groq returned an empty response.');
+        }
+
         return $content;
     }
 
