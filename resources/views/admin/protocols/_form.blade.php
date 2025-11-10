@@ -31,12 +31,14 @@
     </div>
 
     <div class="mb-3">
-        <label for="tags" class="form-label">Tags (comma or newline separated)</label>
-        <textarea class="form-control @error('tags') is-invalid @enderror" id="tags" name="tags" rows="2" placeholder="e.g. anaphylaxis, allergic reaction, epinephrine">{{ $tagsValue }}</textarea>
-        <div class="form-text">You can edit these manually. The AI generator will overwrite this field with new tags.</div>
-        @error('tags')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
+        <label class="form-label">Tags</label>
+        <div id="tag-editor" class="form-control d-flex flex-wrap gap-2 align-items-center" style="min-height: 42px;"></div>
+        <input type="hidden" id="tags-json" name="tags_json" value="">
+        <div class="mt-2 d-flex gap-2">
+            <input type="text" id="tag-input" class="form-control" placeholder="Type and press Enter to add tag" list="tag-options">
+            <datalist id="tag-options"></datalist>
+        </div>
+        <div class="form-text">Use Enter to add. Click × on a chip to remove. Suggestions load from saved tags.</div>
     </div>
 
     <div class="row mb-3">
@@ -80,10 +82,102 @@
 
             const titleInput = document.getElementById('title');
             const descriptionInput = document.getElementById('description');
-            const tagsInput = document.getElementById('tags');
+            const tagsHidden = document.getElementById('tags-json');
             const statusEl = document.getElementById('generate-tags-status');
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
             const providerSelect = document.getElementById('ai-provider');
+            const tagEditor = document.getElementById('tag-editor');
+            const tagInput = document.getElementById('tag-input');
+            const tagOptions = document.getElementById('tag-options');
+
+            const slugify = (s) => {
+                return (s || '')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '') || Math.random().toString(36).slice(2, 10);
+            };
+
+            let currentTags = [];
+
+            const renderChips = () => {
+                tagEditor.innerHTML = '';
+                currentTags.forEach((t, idx) => {
+                    const span = document.createElement('span');
+                    span.className = 'badge rounded-pill text-bg-primary d-flex align-items-center gap-2';
+                    span.textContent = t.label;
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn-close btn-close-white btn-sm ms-2';
+                    btn.addEventListener('click', () => {
+                        currentTags.splice(idx, 1);
+                        updateHidden();
+                        renderChips();
+                    });
+                    span.appendChild(btn);
+                    tagEditor.appendChild(span);
+                });
+            };
+
+            const updateHidden = () => {
+                const uniqueByKey = {};
+                currentTags.forEach(t => uniqueByKey[t.key] = t);
+                const arr = Object.values(uniqueByKey);
+                tagsHidden.value = JSON.stringify(arr);
+            };
+
+            const addTag = (label, key) => {
+                const lbl = (label || '').trim();
+                if (!lbl) return;
+                const k = (key || '').trim() || slugify(lbl);
+                currentTags.push({ key: k, label: lbl });
+                updateHidden();
+                renderChips();
+            };
+
+            // Seed from server-side values
+            try {
+                const initialFromOld = @json(old('tags_json'));
+                if (initialFromOld) {
+                    const parsed = JSON.parse(initialFromOld);
+                    if (Array.isArray(parsed)) {
+                        parsed.forEach(t => addTag(t.label, t.key));
+                    }
+                } else {
+                    const initialLabels = @json($protocol->tags ?? []);
+                    if (Array.isArray(initialLabels)) {
+                        initialLabels.forEach(l => addTag(l));
+                    }
+                }
+            } catch (e) {}
+
+            // Suggestions (datalist)
+            const loadSuggestions = async (q) => {
+                try {
+                    const res = await fetch(`{{ route('admin.tags.suggest') }}?q=${encodeURIComponent(q||'')}`, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    tagOptions.innerHTML = '';
+                    (data.tags || []).forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.label;
+                        tagOptions.appendChild(opt);
+                    });
+                } catch {}
+            };
+            loadSuggestions('');
+
+            tagInput.addEventListener('input', (e) => {
+                loadSuggestions(e.target.value || '');
+            });
+            tagInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addTag(tagInput.value);
+                    tagInput.value = '';
+                }
+            });
 
             button.addEventListener('click', async () => {
                 const title = titleInput.value.trim();
@@ -128,7 +222,17 @@
                         throw new Error('Unexpected response from AI service.');
                     }
 
-                    tagsInput.value = data.tags.join(', ');
+                    // Accept [{key,label}] or [string]
+                    currentTags = [];
+                    data.tags.forEach(t => {
+                        if (typeof t === 'string') {
+                            addTag(t);
+                        } else if (t && typeof t === 'object') {
+                            addTag(t.label || '', t.key || '');
+                        }
+                    });
+                    updateHidden();
+                    renderChips();
                     statusEl.classList.remove('text-danger');
                     statusEl.classList.add('text-success');
                     statusEl.textContent = 'Tags generated. Review and adjust if needed.';

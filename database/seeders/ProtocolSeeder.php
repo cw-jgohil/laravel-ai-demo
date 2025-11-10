@@ -9,7 +9,9 @@ class ProtocolSeeder extends Seeder
 {
     public function run(): void
     {
-        Protocol::query()->truncate();
+        // Clear existing data without violating foreign key constraints
+        \DB::table('protocol_tag')->delete();
+        Protocol::query()->delete();
 
         Protocol::create([
             'title' => 'Allergic Reaction - Adult',

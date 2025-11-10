@@ -35,6 +35,9 @@
                 <li class="nav-item">
                     <a class="nav-link{{ request()->routeIs('admin.ai-rules.*') ? ' active' : '' }}" href="{{ route('admin.ai-rules.edit') }}">AI Rules</a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link{{ request()->routeIs('admin.tags.*') ? ' active' : '' }}" href="{{ route('admin.tags.index') }}">Tags</a>
+                </li>
             </ul>
         </div>
     </div>

@@ -44,7 +44,7 @@ class AITagGeneratorService
      * @param string $description
      * @param int $maxTags Maximum number of tags to keep
      * @param string|null $overrideRules Additional per-request rules that will be appended to the saved admin rules
-     * @return array<int, string>
+     * @return array<int, array{key:string,label:string}>
      */
     public function generateTags(string $title, string $description, int $maxTags = 12, ?string $overrideRules = null, ?string $provider = null): array
     {
@@ -63,31 +63,18 @@ class AITagGeneratorService
             $model = (string) env('OPENAI_MODEL', 'gpt-4o-mini');
             $content = $this->callOpenAIChat($model, $systemMessage, $userPrompt);
         }
-        $tags = $this->parseTagsFromContent($content);
+        $raw = $this->parseTagsFromContent($content);
+        $structured = $this->normalizeToStructured($raw);
 
-        if (empty($tags)) {
+        if (empty($structured)) {
             throw new RuntimeException('Failed to parse tags from AI response.');
         }
 
-        // Normalize: lowercase, trim, unique, limit
-        $normalized = [];
-        foreach ($tags as $tag) {
-            if (!is_string($tag)) {
-                continue;
-            }
-            $t = trim(mb_strtolower($tag));
-            if ($t === '') {
-                continue;
-            }
-            $normalized[$t] = true;
-        }
-
-        $result = array_keys($normalized);
         if ($maxTags > 0) {
-            $result = array_slice($result, 0, $maxTags);
+            $structured = array_slice($structured, 0, $maxTags);
         }
 
-        return $result;
+        return $structured;
     }
 
     /**
@@ -111,8 +98,9 @@ class AITagGeneratorService
     private function buildPrompt(string $title, string $description, int $maxTags, string $instructions): array
     {
         $system = 'You are a medical tagging assistant for EMS treatment protocols. '
-            . 'Always respond with a compact JSON array (lowercase strings) of standardized medical tags. '
-            . 'Avoid explanations or additional text.';
+            . 'Always respond with a compact JSON array of objects, each with fields { "key": string, "label": string }. '
+            . '"key" must be a stable, lowercase, URL-safe slug (e.g., "ventricular-fibrillation"); '
+            . '"label" is a human-readable tag. Avoid explanations or additional text; return ONLY the JSON array.';
 
         if ($instructions !== '') {
             $system .= "\n\nAdmin rules to follow:\n" . $instructions;
@@ -120,7 +108,7 @@ class AITagGeneratorService
 
         $user = "Generate at most {$maxTags} high-quality search tags for the following protocol. "
             . "Include synonymous medical terms when appropriate. "
-            . "Return ONLY the JSON array.\n\n"
+            . "Return ONLY the JSON array of objects with {key,label}.\n\n"
             . "Title: {$title}\n\nDescription: {$description}";
 
         return [$system, $user];
@@ -202,7 +190,7 @@ class AITagGeneratorService
      * Attempt to parse a JSON array from the model output, even if fenced or with extra text.
      *
      * @param string $content
-     * @return array<int, string>
+     * @return array<int, mixed>
      */
     private function parseTagsFromContent(string $content): array
     {
@@ -232,6 +220,56 @@ class AITagGeneratorService
     }
 
     // Removed mock and OpenRouter branches; always uses OpenAI via facade
+
+    /**
+     * Normalize any tag payload (strings or objects) into [{key,label}] unique by key.
+     *
+     * @param array<int, mixed> $tags
+     * @return array<int, array{key:string,label:string}>
+     */
+    private function normalizeToStructured(array $tags): array
+    {
+        $items = [];
+        foreach ($tags as $t) {
+            if (is_string($t)) {
+                $label = trim($t);
+                if ($label === '') {
+                    continue;
+                }
+                $items[] = [
+                    'key' => $this->slugifyKey($label),
+                    'label' => $label,
+                ];
+            } elseif (is_array($t)) {
+                $label = trim((string)($t['label'] ?? $t['name'] ?? ''));
+                $key = trim((string)($t['key'] ?? ''));
+                if ($label === '') {
+                    continue;
+                }
+                if ($key === '') {
+                    $key = $this->slugifyKey($label);
+                }
+                $items[] = [
+                    'key' => $key,
+                    'label' => $label,
+                ];
+            }
+        }
+        // Unique by key
+        $unique = [];
+        foreach ($items as $i) {
+            $unique[$i['key']] = $i;
+        }
+        return array_values($unique);
+    }
+
+    private function slugifyKey(string $label): string
+    {
+        $k = mb_strtolower($label);
+        $k = preg_replace('/[^a-z0-9]+/i', '-', $k) ?? '';
+        $k = trim($k, '-');
+        return $k !== '' ? $k : substr(md5($label), 0, 8);
+    }
 }
 
 

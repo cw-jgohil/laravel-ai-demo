@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AiPromptRuleController;
 use App\Http\Controllers\Admin\ProtocolController;
+use App\Http\Controllers\Admin\TagController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -29,6 +30,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/ai-rules', [AiPromptRuleController::class, 'edit'])->name('ai-rules.edit');
     Route::put('/ai-rules', [AiPromptRuleController::class, 'update'])->name('ai-rules.update');
+
+    Route::get('/tags/suggest', [TagController::class, 'suggest'])->name('tags.suggest');
+    Route::resource('tags', TagController::class)->except(['show']);
 });
 
 
