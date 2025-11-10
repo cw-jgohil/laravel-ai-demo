@@ -1,0 +1,55 @@
+services:
+  laravel.test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laravel_app
+    restart: always
+    ports:
+      - "80:80"
+    environment:
+      APP_ENV: local
+      APP_DEBUG: true
+      APP_KEY: base64:XN/VFbidXr74TEhH8ZtwyHI5j3sPdt/4ZjcW+SM/CmU=
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: laravel
+      DB_USERNAME: app_user
+      DB_PASSWORD: app_password
+    depends_on:
+      - mysql
+    volumes:
+      - ./:/var/www/html
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: laravel
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: always
+    depends_on:
+      - mysql
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+
+volumes:
+  mysql_data:
